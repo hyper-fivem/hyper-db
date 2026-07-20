@@ -1,0 +1,18 @@
+{
+  "name": "hyper-db",
+  "private": true,
+  "license": "GPL-3.0",
+  "workspaces": [
+    "packages/*",
+    "resource"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "build": "bun run --cwd resource build",
+    "codegen": "bun run packages/codegen/src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

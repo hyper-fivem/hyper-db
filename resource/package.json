@@ -1,0 +1,13 @@
+{
+  "name": "@hyper-db/resource",
+  "version": "0.1.0",
+  "license": "GPL-3.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.ts"
+  },
+  "dependencies": {
+    "@hyper-db/core": "workspace:*",
+    "@hyper-db/schema": "workspace:*"
+  }
+}

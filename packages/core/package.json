@@ -1,0 +1,15 @@
+{
+  "name": "@hyper-db/core",
+  "version": "0.1.0",
+  "license": "GPL-3.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@hyper-db/schema": "workspace:*",
+    "ioredis": "^5.4.0",
+    "mariadb": "^3.3.0",
+    "postgres": "^3.4.0"
+  }
+}

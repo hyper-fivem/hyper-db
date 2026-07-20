@@ -1,0 +1,12 @@
+{
+  "name": "@hyper-db/schema",
+  "version": "0.1.0",
+  "license": "GPL-3.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./pg-core": "./src/pg-core.ts",
+    "./mysql-core": "./src/mysql-core.ts",
+    "./redis": "./src/redis.ts"
+  }
+}

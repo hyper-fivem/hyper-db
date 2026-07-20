@@ -1,0 +1,15 @@
+{
+  "name": "@hyper-db/codegen",
+  "version": "0.1.0",
+  "license": "GPL-3.0",
+  "type": "module",
+  "bin": {
+    "hyperdb": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@hyper-db/schema": "workspace:*"
+  }
+}

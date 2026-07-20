@@ -78,10 +78,7 @@ export class QueryEngine {
     }
     const start = performance.now();
     try {
-      const rows =
-        this.driver.dialect === 'pg'
-          ? await this.driver.prepared(`hdb_${queryId}`, entry.sql, params)
-          : await this.driver.query(entry.sql, params);
+      const rows = await this.driver.prepared(`hdb_${queryId}`, entry.sql, params);
       this.stats.recordQuery(queryId, performance.now() - start);
       return rows;
     } catch (err) {

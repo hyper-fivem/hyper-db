@@ -36,8 +36,15 @@ export class MysqlDriver implements SqlDriver {
     }
   }
 
+  /** pool.execute uses the binary protocol with a per-connection prepared-
+   *  statement cache (keyed on sql text) — one roundtrip in steady state. */
   async prepared(_name: string, sql: string, params: unknown[]): Promise<SqlRow[]> {
-    return this.query(sql, params); // mariadb pipelines/caches internally
+    try {
+      const rows = await this.pool.execute({ sql, rowsAsArray: false }, params);
+      return Array.isArray(rows) ? (rows as SqlRow[]) : [];
+    } catch (err) {
+      throw HyperDbError.wrap(err);
+    }
   }
 
   async close(): Promise<void> {

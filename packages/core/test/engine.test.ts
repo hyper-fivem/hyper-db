@@ -44,12 +44,12 @@ describe('QueryEngine', () => {
     expect(engine.execute(topId, [1])).rejects.toMatchObject({ code: 'bad_params' });
   });
 
-  test('mysql dialect uses plain query (no prepared reuse)', async () => {
+  test('mysql dialect also goes through prepared (binary protocol, stmt cache)', async () => {
     const driver = new FakeSql('mysql');
     const engine = new QueryEngine(driver);
     engine.register('q1', { sql: 'select 1 from `users` where `id` = ?', paramCount: 1 });
     await engine.execute('q1', ['a']);
-    expect(driver.calls[0]!.kind).toBe('query');
+    expect(driver.calls[0]!.kind).toBe('prepared');
   });
 
   test('executeDynamic caches compiled sql per shape', async () => {

@@ -37,10 +37,16 @@ export class PgDriver implements SqlDriver {
     }
   }
 
-  /** postgres.js keys its prepared-statement cache on query text; the name is
-   *  informational here but kept for the SqlDriver contract. */
+  /** postgres.js `unsafe` does NOT prepare by default — without the option it
+   *  pays an extra describe roundtrip per call for parameter typing (2×RTT on
+   *  a real network). `prepare: true` names + caches the statement per
+   *  connection, keyed on query text. */
   async prepared(_name: string, sql: string, params: unknown[]): Promise<SqlRow[]> {
-    return this.query(sql, params);
+    try {
+      return await this.sql.unsafe(sql, params as never[], { prepare: true });
+    } catch (err) {
+      throw HyperDbError.wrap(err);
+    }
   }
 
   async close(): Promise<void> {

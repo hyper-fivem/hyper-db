@@ -25,6 +25,7 @@
         "hyperdb": "./src/cli.ts",
       },
       "dependencies": {
+        "@hyper-db/core": "workspace:*",
         "@hyper-db/schema": "workspace:*",
       },
     },

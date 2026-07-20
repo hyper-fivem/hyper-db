@@ -10,6 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@hyper-db/core": "workspace:*",
     "@hyper-db/schema": "workspace:*"
   }
 }

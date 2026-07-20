@@ -1,6 +1,7 @@
 export { HyperDbError, type ErrorCode, type BoundaryError } from './errors';
 export { Stats, type StatsSnapshot, type StatsOptions } from './stats';
 export { QueryEngine, type RegisterEntry } from './engine';
+export { parseChain } from './chain';
 export { PubSub } from './pubsub';
 export { QueryCache, type CacheQueryOptions } from './cache';
 export { HotStore, type AnyRedisTableMeta } from './hot-store';

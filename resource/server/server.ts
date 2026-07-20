@@ -16,6 +16,7 @@ import {
   QueryCache,
   QueryEngine,
   Stats,
+  formatErrorMarkdown,
   parseChain,
   type RedisDriver,
   type SqlDriver,
@@ -36,7 +37,14 @@ export interface ServerDeps {
   redis?: RedisDriver;
 }
 
-export function createServer(deps: ServerDeps) {
+export interface ServerOptions {
+  /** Receives one markdown block per failure (default: none). The FiveM
+   *  bootstrap wires this to console.error so agents reading the server
+   *  console get structured, parseable error reports. */
+  logError?: (markdown: string) => void;
+}
+
+export function createServer(deps: ServerDeps, options: ServerOptions = {}) {
   const stats = new Stats();
   const engine = new QueryEngine(deps.sql, { stats });
   const cache = deps.redis ? new QueryCache(deps.redis, { stats }) : undefined;
@@ -44,10 +52,16 @@ export function createServer(deps: ServerDeps) {
   const pubsub = deps.redis ? new PubSub(deps.redis) : undefined;
   const tables = new Map<string, TableMetaValue>();
 
-  const run = (work: Promise<SqlRow[]>, cb: BoundaryCallback): void => {
+  const report = (source: string, err: unknown): HyperDbError => {
+    const wrapped = HyperDbError.wrap(err);
+    options.logError?.(formatErrorMarkdown(wrapped, { source }));
+    return wrapped;
+  };
+
+  const run = (source: string, work: Promise<SqlRow[]>, cb: BoundaryCallback): void => {
     work.then(
       (rows) => cb(null, rows),
-      (err) => cb(HyperDbError.wrap(err).toBoundary(), null),
+      (err) => cb(report(source, err).toBoundary(), null),
     );
   };
 
@@ -59,16 +73,21 @@ export function createServer(deps: ServerDeps) {
     pubsub,
 
     execute(queryId: string, params: unknown[], cb: BoundaryCallback): void {
-      run(engine.execute(queryId, params ?? []), cb);
+      run('execute', engine.execute(queryId, params ?? []), cb);
     },
 
     executeChain(tableName: string, descriptor: string, params: unknown[], cb: BoundaryCallback): void {
       const meta = tables.get(tableName);
       if (!meta) {
-        cb(new HyperDbError('bad_params', `chain: unregistered table '${tableName}'`).toBoundary(), null);
+        const err = report(
+          'executeChain',
+          new HyperDbError('bad_params', `chain: unregistered table '${tableName}'`, { table: tableName, descriptor }),
+        );
+        cb(err.toBoundary(), null);
         return;
       }
       run(
+        'executeChain',
         (async () => {
           const ast = parseChain(meta, descriptor);
           return engine.executeDynamic(ast, params ?? []);
@@ -96,12 +115,12 @@ export function createServer(deps: ServerDeps) {
 
     invalidateTags(tags: string[], cb?: (err: unknown) => void): void {
       if (!cache) {
-        cb?.(new HyperDbError('unsupported_feature', 'cache requires redis').toBoundary());
+        cb?.(report('invalidateTags', new HyperDbError('unsupported_feature', 'cache requires redis')).toBoundary());
         return;
       }
       cache.invalidateTags(tags).then(
         () => cb?.(null),
-        (err) => cb?.(HyperDbError.wrap(err).toBoundary()),
+        (err) => cb?.(report('invalidateTags', err).toBoundary()),
       );
     },
 

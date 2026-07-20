@@ -114,6 +114,33 @@ set hyperdb_redis_host "localhost"
 Build the resource bundle with `bun run build` (writes `resource/dist/server.js`).
 Stats: `hyperdb_stats` console command or the `hyperdbStats` export.
 
+### Error logs
+
+Failures print one structured markdown block to the server console (code,
+message, context table, SQL, params, actionable hint) — designed to be
+directly parseable by AI agents reading console output:
+
+```markdown
+### ❌ hyper-db error — `query_failed`
+
+**Message:** relation "players" does not exist
+
+| Field | Value |
+|---|---|
+| source | `execute` |
+| queryId | `a1b2c3d4e5f60718` |
+
+​```sql
+select * from "players" where "elo" > $1 limit $2
+​```
+
+**Params:** `[2000,10]`
+
+**Hint:** The SQL below failed on the database. Verify the schema matches ...
+```
+
+Disable with `set hyperdb_log_errors 0`.
+
 ## Benchmarks
 
 ```bash

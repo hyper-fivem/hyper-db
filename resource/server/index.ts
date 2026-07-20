@@ -40,7 +40,13 @@ function boot(): void {
     });
   }
 
-  const server = redis ? createServer({ sql, redis }) : createServer({ sql });
+  // markdown error reports in the server console (set hyperdb_log_errors 0 to disable)
+  const logError =
+    convar('hyperdb_log_errors', '1') !== '0'
+      ? (markdown: string) => console.error(`^1[hyper-db]^0\n${markdown}`)
+      : undefined;
+
+  const server = createServer(redis ? { sql, redis } : { sql }, logError ? { logError } : {});
 
   const register = globalThis.exports;
   if (typeof register !== 'function') throw new Error('hyper-db must run inside the FiveM server runtime');

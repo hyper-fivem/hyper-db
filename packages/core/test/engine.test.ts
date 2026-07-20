@@ -77,6 +77,8 @@ describe('QueryEngine', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(HyperDbError);
       expect((e as HyperDbError).code).toBe('query_failed');
+      // failure carries full context for error logging
+      expect((e as HyperDbError).details).toEqual({ queryId: 'boom', sql: 'select 1', params: [] });
     }
     driver.handler = () => [];
     await engine.execute('boom', []);

@@ -86,7 +86,7 @@ export class QueryEngine {
       return rows;
     } catch (err) {
       this.stats.recordQuery(queryId, performance.now() - start);
-      throw HyperDbError.wrap(err);
+      throw HyperDbError.wrap(err).withContext({ queryId, sql: entry.sql, params });
     }
   }
 }

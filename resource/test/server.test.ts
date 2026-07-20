@@ -60,6 +60,50 @@ describe('resource server wiring', () => {
     expect(errOk).toBeNull();
   });
 
+  test('failures emit one markdown block to the error logger', async () => {
+    const sql = new FakeSql('pg');
+    sql.handler = () => {
+      throw new Error('relation "players" does not exist');
+    };
+    const logs: string[] = [];
+    const server = createServer({ sql }, { logError: (md) => void logs.push(md) });
+    server.registerQueries({
+      top: { queryId: 'q_top', sql: 'select * from "players" limit $1', paramCount: 1 },
+    });
+    await call((cb) => server.execute('q_top', [10], cb));
+
+    expect(logs.length).toBe(1);
+    const md = logs[0]!;
+    expect(md).toContain('### ❌ hyper-db error — `query_failed`');
+    expect(md).toContain('**Message:** relation "players" does not exist');
+    expect(md).toContain('| source | `execute` |');
+    expect(md).toContain('| queryId | `q_top` |');
+    expect(md).toContain('```sql\nselect * from "players" limit $1\n```');
+    expect(md).toContain('**Params:** `[10]`');
+    expect(md).toContain('**Hint:**');
+  });
+
+  test('unregistered chain table is also reported to the logger', async () => {
+    const logs: string[] = [];
+    const server = createServer({ sql: new FakeSql('pg') }, { logError: (md) => void logs.push(md) });
+    await call((cb) => server.executeChain('ghost', 'w:elo:gt', [1], cb));
+    expect(logs.length).toBe(1);
+    expect(logs[0]).toContain('`bad_params`');
+    expect(logs[0]).toContain('| table | `ghost` |');
+    expect(logs[0]).toContain('| descriptor | `w:elo:gt` |');
+  });
+
+  test('no logger configured -> no crash, boundary error still returned', async () => {
+    const sql = new FakeSql('pg');
+    sql.handler = () => {
+      throw new Error('boom');
+    };
+    const server = createServer({ sql });
+    server.registerQueries({ q: { queryId: 'q1', sql: 'select 1', paramCount: 0 } });
+    const { err } = await call((cb) => server.execute('q1', [], cb));
+    expect(err!.code).toBe('query_failed');
+  });
+
   test('stats snapshot exposed', async () => {
     const sql = new FakeSql('pg');
     const server = createServer({ sql });

@@ -1,4 +1,5 @@
 export { HyperDbError, type ErrorCode, type BoundaryError } from './errors';
+export { formatErrorMarkdown, type ErrorLogContext } from './error-log';
 export { Stats, type StatsSnapshot, type StatsOptions } from './stats';
 export { QueryEngine, type RegisterEntry } from './engine';
 export { parseChain } from './chain';

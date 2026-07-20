@@ -28,6 +28,11 @@ export class HyperDbError extends Error {
     if (details !== undefined) this.details = details;
   }
 
+  /** New error with extra context merged into details (existing keys win). */
+  withContext(context: Record<string, unknown>): HyperDbError {
+    return new HyperDbError(this.code, this.message, { ...context, ...this.details });
+  }
+
   toBoundary(): BoundaryError {
     const wire: BoundaryError = { code: this.code, message: this.message };
     if (this.details !== undefined) wire.details = this.details;

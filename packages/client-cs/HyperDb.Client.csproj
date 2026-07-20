@@ -1,0 +1,12 @@
+<Project Sdk="CitizenFX.Sdk.Server/0.9.0">
+  <!-- Mono v2 (beta) server project. Isolated per PRD: consumers must keep a
+       Lua/TS fallback; disable at runtime with `setr hyperdb_cs_enabled 0`. -->
+  <PropertyGroup>
+    <TargetName>HyperDb.Client</TargetName>
+    <RootNamespace>HyperDb</RootNamespace>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="HyperDb.cs" />
+  </ItemGroup>
+</Project>

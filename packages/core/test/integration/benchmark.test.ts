@@ -117,6 +117,132 @@ describe.skipIf(!IT)('integration benchmark', () => {
     expect(r.p50).toBeLessThan(25);
   }, 120_000);
 
+  /** Indexed workload: 100k-row table, ~33 rows per elo value. Measures the
+   *  full-scan baseline first, then each index strategy as it is added:
+   *  - (banned, elo) multicolumn → PG 18 B-tree skip scan on elo-only
+   *    predicates (MariaDB 11.4 has no skip scan — same index, same query)
+   *  - (elo) INCLUDE (name) covering → PG index-only scan (MariaDB
+   *    equivalent: composite (elo, name) secondary index)
+   *  - partial index + JSONB GIN (PG-only features)
+   *  - PK point lookup and upsert with all indexes present (maintenance) */
+  test.skipIf(!runPg)('indexed workload, 100k rows (postgres)', async () => {
+    const d = pg!;
+    await d.query('drop table if exists bench_idx', []);
+    await d.query(
+      'create table bench_idx (id uuid primary key, name text not null, elo integer not null, banned boolean not null, meta jsonb not null)',
+      [],
+    );
+    await d.query(
+      `insert into bench_idx
+       select gen_random_uuid(), 'player_' || i, (random() * 3000)::int, random() < 0.05,
+              jsonb_build_object('level', (random() * 100)::int, 'clan', 'clan' || (i % 7))
+       from generate_series(1, 100000) i`,
+      [],
+    );
+    await d.query('analyze bench_idx', []);
+    const engine = new QueryEngine(d);
+    let i = 0;
+
+    engine.register('idx_eq', { sql: 'select "id" from "bench_idx" where "elo" = $1 limit 10', paramCount: 1 });
+    await measure('pg eq full scan (no index)', 10, 200, () => engine.execute('idx_eq', [i++ % 3000]));
+
+    await d.query('create index bench_idx_skip on bench_idx (banned, elo)', []);
+    await d.query('analyze bench_idx', []);
+    const engine2 = new QueryEngine(d); // fresh prepared statements → fresh plans
+    engine2.register('idx_eq2', { sql: 'select "id" from "bench_idx" where "elo" = $1 limit 10', paramCount: 1 });
+    const skip = await measure('pg eq via (banned,elo) skip scan [pg18]', 200, N, () => engine2.execute('idx_eq2', [i++ % 3000]));
+    expect(skip.p50).toBeLessThan(25);
+
+    await d.query('create index bench_idx_cover on bench_idx (elo desc) include (name)', []);
+    await d.query('analyze bench_idx', []);
+    engine2.register('idx_cover', {
+      sql: 'select "name", "elo" from "bench_idx" where "elo" between $1 and $2 order by "elo" desc limit 20',
+      paramCount: 2,
+    });
+    const cover = await measure('pg range via covering idx (index-only)', 200, N, () => {
+      const lo = i++ % 2900;
+      return engine2.execute('idx_cover', [lo, lo + 10]);
+    });
+    expect(cover.p50).toBeLessThan(25);
+
+    await d.query('create index bench_idx_partial on bench_idx (elo desc) where banned', []);
+    await d.query('analyze bench_idx', []);
+    engine2.register('idx_partial', {
+      sql: 'select "id", "elo" from "bench_idx" where "banned" and "elo" > $1 order by "elo" desc limit 10',
+      paramCount: 1,
+    });
+    await measure('pg banned-only via partial idx', 200, N, () => engine2.execute('idx_partial', [i++ % 2000]));
+
+    await d.query('create index bench_idx_meta on bench_idx using gin (meta jsonb_path_ops)', []);
+    await d.query('analyze bench_idx', []);
+    engine2.register('idx_gin', { sql: 'select "id" from "bench_idx" where "meta" @> $1::jsonb limit 10', paramCount: 1 });
+    await measure('pg jsonb containment via GIN idx', 200, N, () => engine2.execute('idx_gin', [`{"clan":"clan${i++ % 7}"}`]));
+
+    const first = await d.query('select "id" from bench_idx limit 1', []);
+    engine2.register('idx_pk', { sql: 'select * from "bench_idx" where "id" = $1', paramCount: 1 });
+    await measure('pg pk point lookup (100k)', 200, N, () => engine2.execute('idx_pk', [first[0]!['id']]));
+
+    engine2.register('idx_up', {
+      sql: 'insert into "bench_idx" ("id", "name", "elo", "banned", "meta") values ($1, $2, $3, $4, $5::jsonb) on conflict ("id") do update set "elo" = $6',
+      paramCount: 6,
+    });
+    const up = await measure('pg upsert w/ 4 secondary idx (100k)', 200, N, () =>
+      engine2.execute('idx_up', [first[0]!['id'], 'player_x', 1000 + (i++ % 500), false, '{"level":1}', 1000 + (i % 500)]),
+    );
+    expect(up.p50).toBeLessThan(25);
+  }, 600_000);
+
+  test.skipIf(!runMysql)('indexed workload, 100k rows (mariadb)', async () => {
+    const d = mysql!;
+    await d.query('drop table if exists bench_idx', []);
+    await d.query(
+      'create table bench_idx (id varchar(36) primary key, name varchar(64) not null, elo int not null, banned tinyint(1) not null, meta json not null)',
+      [],
+    );
+    await d.query(
+      `insert into bench_idx
+       select uuid(), concat('player_', seq), floor(rand() * 3000), rand() < 0.05,
+              json_object('level', floor(rand() * 100), 'clan', concat('clan', seq % 7))
+       from seq_1_to_100000`,
+      [],
+    );
+    await d.query('analyze table bench_idx', []);
+    const engine = new QueryEngine(d);
+    let i = 0;
+
+    engine.register('idx_eq', { sql: 'select `id` from `bench_idx` where `elo` = ? limit 10', paramCount: 1 });
+    await measure('mysql eq full scan (no index)', 10, 200, () => engine.execute('idx_eq', [i++ % 3000]));
+
+    await d.query('create index bench_idx_skip on bench_idx (banned, elo)', []);
+    await d.query('analyze table bench_idx', []);
+    await measure('mysql eq via (banned,elo) [no skip scan]', 20, 500, () => engine.execute('idx_eq', [i++ % 3000]));
+
+    await d.query('create index bench_idx_cover on bench_idx (elo desc, name)', []);
+    await d.query('analyze table bench_idx', []);
+    engine.register('idx_cover', {
+      sql: 'select `name`, `elo` from `bench_idx` where `elo` between ? and ? order by `elo` desc limit 20',
+      paramCount: 2,
+    });
+    const cover = await measure('mysql range via covering idx', 200, N, () => {
+      const lo = i++ % 2900;
+      return engine.execute('idx_cover', [lo, lo + 10]);
+    });
+    expect(cover.p50).toBeLessThan(25);
+
+    const first = await d.query('select `id` from bench_idx limit 1', []);
+    engine.register('idx_pk', { sql: 'select * from `bench_idx` where `id` = ?', paramCount: 1 });
+    await measure('mysql pk point lookup (100k)', 200, N, () => engine.execute('idx_pk', [first[0]!['id']]));
+
+    engine.register('idx_up', {
+      sql: 'insert into `bench_idx` (`id`, `name`, `elo`, `banned`, `meta`) values (?, ?, ?, ?, ?) on duplicate key update `elo` = ?',
+      paramCount: 6,
+    });
+    const up = await measure('mysql upsert w/ 2 secondary idx (100k)', 200, N, () =>
+      engine.execute('idx_up', [first[0]!['id'], 'player_x', 1000 + (i++ % 500), 0, '{"level":1}', 1000 + (i % 500)]),
+    );
+    expect(up.p50).toBeLessThan(25);
+  }, 600_000);
+
   test.skipIf(!runRedis)('hot-store write + read (redis)', async () => {
     const sessions = redisTable('bench_sessions', {
       keyBy: 'playerId',

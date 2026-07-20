@@ -200,43 +200,6 @@ SQL upserts, and immune to checkpoint stalls.
 The boundary-payload contract (`queryId + params` only) is asserted in CI by
 `resource/test/boundary-payload.test.ts`.
 
-### Why no worker threads
-
-Resources like [loaf_bcrypt](https://github.com/loaf-scripts/loaf_bcrypt)
-move work to a `node:worker_threads` worker because bcrypt is **CPU-bound**
-(~80ms per hash blocks the FiveM tick) with tiny payloads (password in,
-60-char hash out). A DB pipeline has the opposite shape: the heavy work runs
-in the database server process, Node's socket I/O is already off the main
-thread (libuv), and the payload — the result set — is the expensive part.
-`bench/worker-thread-bench.mjs` measures what a worker would cost us
-(Node 24, Ryzen dev box):
-
-| | inline | via worker thread |
-|---|---|---|
-| roundtrip overhead | 0.2µs | 21.7µs |
-| 100-row result | 23µs (stringify) | 184µs (structured clone) |
-| 10k-row result | 3.1ms | 17.7ms |
-| max tick drift, 20×10k rows | 3.1ms | **29.7ms** |
-
-The deserialize half of structured clone runs on the *receiving* (main)
-thread, so a worker doesn't even remove the large-result hitch — it makes it
-~8× worse while adding ~22µs to every query (our whole PG select is 60µs
-p50).
-
-Confirmed end-to-end on the dedicated benchmark server (Node 22 — FiveM's
-runtime — against live tuned PostgreSQL 18, N=2000): the same registered
-select run inline vs through a worker thread owning the connection:
-
-| | p50 | p99 | ops/s |
-|---|---|---|---|
-| inline (current hyper-db path) | 0.060ms | 0.573ms | 12,258 |
-| via worker thread | 0.106ms | 0.913ms | 6,849 |
-
-Conclusion: worker threads are the right tool for bcrypt-shaped work
-(CPU-bound, tiny payloads), the wrong tool for an I/O-bound driver — they
-cost ~77% p50 latency and ~44% throughput even on single-row results. Keep
-hot reads in the Redis hot-store and paginate huge result sets instead.
-
 ## Status
 
 v1 foundation (M0–M2 core + M4/M5 scaffolds). Not yet done: live FiveM e2e

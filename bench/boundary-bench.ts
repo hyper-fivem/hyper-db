@@ -41,6 +41,7 @@ await bench('engine overhead (fake sql)', new FakeSql('pg'), ITERATIONS);
 if (process.env.HYPERDB_BENCH_PG === '1') {
   const pg = new PgDriver({
     host: process.env.HYPERDB_PG_HOST ?? 'localhost',
+    port: Number(process.env.HYPERDB_PG_PORT ?? '5433'),
     database: process.env.HYPERDB_PG_DB ?? 'hyperdb',
     username: process.env.HYPERDB_PG_USER ?? 'hyper',
     password: process.env.HYPERDB_PG_PASSWORD ?? 'hyper',

@@ -2,13 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { PgDriver, MysqlDriver, IoRedisDriver, QueryEngine, Locks, HotStore } from '../../src/index';
 import { redisTable, rString, rNumber, RedisTableMeta } from '@hyper-db/schema';
 
+import { IT, PG, MYSQL, REDIS } from './it-env';
+
 /** Integration suite against docker-compose services.
  *  Run: docker-compose up -d && HYPERDB_IT=1 bun test test/integration */
-const IT = process.env.HYPERDB_IT === '1';
-
 describe.skipIf(!IT)('integration: postgres', () => {
   test('roundtrip create/insert/select', async () => {
-    const pg = new PgDriver({ host: 'localhost', database: 'hyperdb', username: 'hyper', password: 'hyper' });
+    const pg = new PgDriver(PG);
     try {
       await pg.query('drop table if exists it_players', []);
       await pg.query('create table it_players (id uuid primary key, elo integer not null)', []);
@@ -27,7 +27,7 @@ describe.skipIf(!IT)('integration: postgres', () => {
 
 describe.skipIf(!IT)('integration: mariadb', () => {
   test('roundtrip', async () => {
-    const my = new MysqlDriver({ host: 'localhost', database: 'hyperdb', user: 'hyper', password: 'hyper' });
+    const my = new MysqlDriver(MYSQL);
     try {
       await my.query('drop table if exists it_users', []);
       await my.query('create table it_users (id varchar(36) primary key, lvl int not null)', []);
@@ -50,7 +50,7 @@ describe.skipIf(!IT)('integration: redis', () => {
   });
 
   test('hot-store + locks against real redis', async () => {
-    const redis = new IoRedisDriver({ host: 'localhost' });
+    const redis = new IoRedisDriver(REDIS);
     try {
       const store = new HotStore(redis, sessions[RedisTableMeta]);
       await store.set('p1', { playerId: 'p1', elo: 1234 });

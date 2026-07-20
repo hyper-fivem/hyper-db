@@ -38,9 +38,14 @@ safety, no cache layer, no PostgreSQL. hyper-db gives you:
 ```bash
 bun install
 bun test                 # unit + golden + snapshot tests
-docker-compose up -d     # postgres + mariadb + redis
-HYPERDB_IT=1 bun test packages/core/test/integration
+docker-compose up -d     # postgres :5433, mariadb :3307, redis :6379
+HYPERDB_IT=1 bun test packages/core/test/integration   # incl. benchmark stage
 ```
+
+Compose maps host ports 5433/3307 so locally installed PostgreSQL/XAMPP
+services on 5432/3306 keep working. Override via `HYPERDB_PG_PORT`,
+`HYPERDB_MYSQL_PORT`, `HYPERDB_REDIS_PORT` etc. (see
+`packages/core/test/integration/it-env.ts`).
 
 ### 1. Define your schema (single source of truth)
 
@@ -146,7 +151,20 @@ Disable with `set hyperdb_log_errors 0`.
 ```bash
 bun run bench/boundary-bench.ts               # engine overhead
 HYPERDB_BENCH_PG=1 bun run bench/boundary-bench.ts   # with live PG
+HYPERDB_IT=1 bun test packages/core/test/integration/benchmark.test.ts
 ```
+
+The integration benchmark asserts the PRD latency targets against live
+services and prints a report. Reference numbers (Windows 11, Docker Desktop,
+local compose services):
+
+| Benchmark | p50 | p99 | ops/s |
+|---|---|---|---|
+| pg registered select (prepared reuse) | 0.34ms | 1.37ms | 2,351 |
+| hot-store write | 0.42ms | 0.87ms | 2,124 |
+| hot-store read | 0.13ms | 0.45ms | 6,093 |
+| cache hit | 0.14ms | 0.41ms | 6,004 |
+| withLock roundtrip | 0.27ms | 0.54ms | 3,314 |
 
 The boundary-payload contract (`queryId + params` only) is asserted in CI by
 `resource/test/boundary-payload.test.ts`.

@@ -12,6 +12,7 @@
     "codegen": "bun run packages/codegen/src/cli.ts"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.14",
     "@types/node": "^22.0.0",
     "typescript": "^5.5.0"
   }

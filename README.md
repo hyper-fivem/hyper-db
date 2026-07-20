@@ -221,9 +221,21 @@ thread (libuv), and the payload — the result set — is the expensive part.
 The deserialize half of structured clone runs on the *receiving* (main)
 thread, so a worker doesn't even remove the large-result hitch — it makes it
 ~8× worse while adding ~22µs to every query (our whole PG select is 60µs
-p50). Conclusion: worker threads are the right tool for bcrypt-shaped work,
-the wrong tool for an I/O-bound driver. Keep hot reads in the Redis
-hot-store and paginate huge result sets instead.
+p50).
+
+Confirmed end-to-end on the dedicated benchmark server (Node 22 — FiveM's
+runtime — against live tuned PostgreSQL 18, N=2000): the same registered
+select run inline vs through a worker thread owning the connection:
+
+| | p50 | p99 | ops/s |
+|---|---|---|---|
+| inline (current hyper-db path) | 0.060ms | 0.573ms | 12,258 |
+| via worker thread | 0.106ms | 0.913ms | 6,849 |
+
+Conclusion: worker threads are the right tool for bcrypt-shaped work
+(CPU-bound, tiny payloads), the wrong tool for an I/O-bound driver — they
+cost ~77% p50 latency and ~44% throughput even on single-row results. Keep
+hot reads in the Redis hot-store and paginate huge result sets instead.
 
 ## Status
 

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { redisTable, rString, rNumber, RedisTableMeta } from '@hyper-db/schema';
-import { PgDriver, IoRedisDriver, QueryEngine, QueryCache, HotStore, Locks } from '../../src/index';
-import { IT, PG, REDIS } from './it-env';
+import { PgDriver, MysqlDriver, IoRedisDriver, QueryEngine, QueryCache, HotStore, Locks } from '../../src/index';
+import { IT, PG, MYSQL, REDIS } from './it-env';
 
 /** Benchmark stage of the integration suite (PRD F13 / M0 boundary-cost
  *  benchmark). Runs against live docker-compose services, prints a p50/p99
@@ -39,15 +39,20 @@ async function measure(label: string, warmup: number, n: number, op: () => Promi
 
 describe.skipIf(!IT)('integration benchmark', () => {
   let pg: PgDriver;
+  let mysql: MysqlDriver;
   let redis: IoRedisDriver;
 
   beforeAll(async () => {
     pg = new PgDriver(PG);
+    mysql = new MysqlDriver(MYSQL);
     redis = new IoRedisDriver(REDIS);
     await pg.query('drop table if exists bench_players', []);
     await pg.query('create table bench_players (id uuid primary key, elo integer not null)', []);
     await pg.query("insert into bench_players values ('00000000-0000-4000-8000-000000000001', 1500)", []);
-  });
+    await mysql.query('drop table if exists bench_players', []);
+    await mysql.query('create table bench_players (id varchar(36) primary key, elo int not null)', []);
+    await mysql.query("insert into bench_players values ('00000000-0000-4000-8000-000000000001', 1500)", []);
+  }, 120_000);
 
   afterAll(async () => {
     // print the consolidated report table for the benchmark log
@@ -57,15 +62,46 @@ describe.skipIf(!IT)('integration benchmark', () => {
       console.log(`| ${r.label} | ${r.p50.toFixed(2)}ms | ${r.p99.toFixed(2)}ms | ${r.opsPerSec.toLocaleString()} |`);
     }
     await pg?.close();
+    await mysql?.close();
     await redis?.close();
-  });
+  }, 120_000);
 
   test('registered query with prepared reuse (postgres)', async () => {
     const engine = new QueryEngine(pg);
     engine.register('bench_sel', { sql: 'select * from "bench_players" where "elo" > $1', paramCount: 1 });
     const r = await measure('pg registered select', 200, N, () => engine.execute('bench_sel', [0]));
     expect(r.p50).toBeLessThan(25);
-  });
+  }, 120_000);
+
+  test('registered query (mariadb)', async () => {
+    const engine = new QueryEngine(mysql);
+    engine.register('bench_sel', { sql: 'select * from `bench_players` where `elo` > ?', paramCount: 1 });
+    const r = await measure('mysql registered select', 200, N, () => engine.execute('bench_sel', [0]));
+    expect(r.p50).toBeLessThan(25);
+  }, 120_000);
+
+  test('upsert (postgres on conflict vs mariadb on duplicate key)', async () => {
+    const pgEngine = new QueryEngine(pg);
+    pgEngine.register('bench_up', {
+      sql: 'insert into "bench_players" ("id", "elo") values ($1, $2) on conflict ("id") do update set "elo" = $3',
+      paramCount: 3,
+    });
+    const pgReport = await measure('pg upsert', 200, N, () =>
+      pgEngine.execute('bench_up', ['00000000-0000-4000-8000-000000000002', 1000, 1001]),
+    );
+
+    const myEngine = new QueryEngine(mysql);
+    myEngine.register('bench_up', {
+      sql: 'insert into `bench_players` (`id`, `elo`) values (?, ?) on duplicate key update `elo` = ?',
+      paramCount: 3,
+    });
+    const myReport = await measure('mysql upsert', 200, N, () =>
+      myEngine.execute('bench_up', ['00000000-0000-4000-8000-000000000002', 1000, 1001]),
+    );
+
+    expect(pgReport.p50).toBeLessThan(25);
+    expect(myReport.p50).toBeLessThan(25);
+  }, 120_000);
 
   test('hot-store write + read (redis)', async () => {
     const sessions = redisTable('bench_sessions', {
@@ -78,7 +114,7 @@ describe.skipIf(!IT)('integration benchmark', () => {
     const r = await measure('hot-store read', 200, N, () => store.get('p1'));
     expect(w.p50).toBeLessThan(5); // PRD target: sub-ms; CI headroom 5ms
     expect(r.p50).toBeLessThan(5);
-  });
+  }, 120_000);
 
   test('cache hit path (redis-backed read-through)', async () => {
     const cache = new QueryCache(redis);
@@ -88,7 +124,7 @@ describe.skipIf(!IT)('integration benchmark', () => {
     const r = await measure('cache hit', 200, N, () => cache.cached('bench_q', [], opts, fetch));
     expect(r.p50).toBeLessThan(5);
     await cache.invalidateTags(['bench']);
-  });
+  }, 120_000);
 
   test('withLock acquire/release (redis)', async () => {
     const locks = new Locks(redis);
@@ -96,5 +132,5 @@ describe.skipIf(!IT)('integration benchmark', () => {
       locks.withLock('bench:lock', 1000, async () => null),
     );
     expect(r.p50).toBeLessThan(10); // two redis roundtrips
-  });
+  }, 120_000);
 });

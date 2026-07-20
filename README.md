@@ -155,16 +155,25 @@ HYPERDB_IT=1 bun test packages/core/test/integration/benchmark.test.ts
 ```
 
 The integration benchmark asserts the PRD latency targets against live
-services and prints a report. Reference numbers (Windows 11, Docker Desktop,
-local compose services):
+services and prints a PostgreSQL vs MariaDB comparison. Reference numbers
+(Windows 11, Docker Desktop, local compose services, N=2000):
 
 | Benchmark | p50 | p99 | ops/s |
 |---|---|---|---|
-| pg registered select (prepared reuse) | 0.34ms | 1.37ms | 2,351 |
-| hot-store write | 0.42ms | 0.87ms | 2,124 |
-| hot-store read | 0.13ms | 0.45ms | 6,093 |
-| cache hit | 0.14ms | 0.41ms | 6,004 |
-| withLock roundtrip | 0.27ms | 0.54ms | 3,314 |
+| pg registered select (prepared reuse) | 0.31ms | 0.95ms | 2,610 |
+| mysql registered select | 0.29ms | 0.50ms | 3,378 |
+| pg upsert (`on conflict`) | 2.61ms | 5.12ms | 366 |
+| mysql upsert (`on duplicate key`) | 0.31ms | 0.76ms | 3,038 |
+| hot-store write | 0.60ms | 2.37ms | 1,528 |
+| hot-store read | 0.21ms | 0.45ms | 4,626 |
+| cache hit | 0.14ms | 0.49ms | 5,563 |
+| withLock roundtrip | 0.44ms | 1.56ms | 2,006 |
+
+Reads are equivalent across dialects. The PG upsert gap is durability, not
+engine overhead: stock PG fsyncs every commit (`synchronous_commit=on`),
+which dominates single-row write latency under Docker. This is exactly why
+hot writes go through the Redis hot-store + write-behind batches instead of
+per-event SQL commits.
 
 The boundary-payload contract (`queryId + params` only) is asserted in CI by
 `resource/test/boundary-payload.test.ts`.

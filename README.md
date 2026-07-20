@@ -237,27 +237,41 @@ leaderboard; 90% of ops hit a 2048-player hot set). Seeds:
 separate machine so client CPU can't pollute the measurement):
 
 ```bash
-DIALECT=pg HOST=<db-ip> CONC=16,64,256,1024 POOL=280 DUR=30 bun bench/fivem-load/load.ts
+DIALECT=pg HOST=<db-ip> CONC=1024,2048,4096 WORKERS=14 POOL=4096 DUR=30 bun bench/fivem-load/load.ts
 ```
 
+The generator is multi-process (`WORKERS`) — a single JS thread saturates
+one core at ~12k ops/s and silently becomes the bottleneck, reporting the
+client's ceiling as the server's. Worker starts are staggered to soften the
+connection/auth storm at 4k+ pools.
+
 Results — two identical 16-core / 32GB DDR5 / NVMe boxes (Ryzen 7950X3D,
-Ubuntu 26.04, ~10.8ms network RTT between them), DB tuned for the hardware,
-each dialect measured in isolation, total ops/s:
+Ubuntu 26.04, ~10.8ms network RTT between them), DB tuned for the hardware
+(PG: 8GB shared_buffers, 4500 conns; MariaDB: 8G buffer pool,
+pool-of-threads), each dialect measured in isolation, total ops/s:
 
-| in-flight clients | PostgreSQL 18.4 | MariaDB 11.8 |
+| clients (≈2 conns/player) | PostgreSQL 18.4 | MariaDB 11.8 |
 |---|---|---|
-| 16 | 1,228 | 1,250 |
-| 64 | 4,864 | 4,851 |
-| 256 | 12,504 | 12,501 |
-| 1024 (overload, 280 conns) | **12,096** | 9,589 |
+| 1024 | 28,090 (p50 19–33ms) | **35,794** (p50 17–22ms) |
+| 2048 | 28,484 (p50 21–41ms) | **32,089** (p50 30–38ms) |
+| 4096 | **32,286** (p50 21–35ms) | 30,053 (p50 87–100ms) |
 
-Up to 256 clients both engines ride the network floor (p50 ≈ RTT + <1ms) —
-the DB is nowhere near its limit. The differences appear at the edges:
+Two different scaling personalities:
 
-- **Tail latency at 256:** PG p99 ≈ 25–35ms vs MariaDB ≈ 41–45ms — PG is
-  ~30% smoother exactly where players would feel hitches.
-- **Overload behavior at 1024:** PG holds ~12.1k ops/s (p50 70ms); MariaDB
-  sheds 21% throughput (9.6k, p50 93ms).
+- **MariaDB** (pool-of-threads) peaks early — fastest at 1024 clients
+  (+27% over PG) — then declines as clients grow, and at 4096 its p50
+  balloons to ~90–100ms (queueing) even though throughput holds.
+- **PostgreSQL** starts lower but *rises* with client count (28k → 32.3k),
+  keeping p50 low throughout; the cost shows up as heavy p95/p99 on writes
+  (WAL/commit serialization) and as connect timeouts during 4k-connection
+  storms (~1k of 4096; MariaDB accepted all).
+- Victim CPU at ~31k ops/s was only ~55–60% of 16 cores (measured via
+  vmstat during the run) — the remaining wall is commit/WAL serialization
+  and network, not compute.
+- Perspective: a real 2048-player server issues a few thousand queries/s;
+  both engines sustain ~30k with a 1M-player dataset — 6–15× headroom —
+  and hyper-db's actual deployment model uses one pooled core resource,
+  not 4096 raw connections.
 
 This test also caught a real driver bug: `postgres.js`'s `unsafe()` does not
 prepare unless passed `{ prepare: true }`, costing an extra parameter-typing

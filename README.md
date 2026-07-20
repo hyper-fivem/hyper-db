@@ -177,6 +177,35 @@ each DB benchmarked in isolation, N=2000):
 Every path is deep under the PRD targets (hot-store sub-ms hit at 10–40µs;
 the Docker-era PG upsert gap collapsed from 2.6ms to 0.10ms on real NVMe).
 
+### Indexed workload — PostgreSQL 18 index features vs MariaDB
+
+Same server, 100k-row table (~33 rows per `elo` value), each index strategy
+measured as it is added (`HYPERDB_BENCH_ONLY` isolation, N=2000):
+
+| Benchmark | PG 18 | MariaDB 11.4 |
+|---|---|---|
+| `elo = ?` full scan (no index) | 0.93ms / 1,030 ops/s | 1.99ms / 459 ops/s |
+| `elo = ?` via `(banned, elo)` index | **0.06ms / 13,368** (skip scan) | 1.19ms / 840 (no skip scan) |
+| range + order by via covering index | 0.10ms / 8,273 (index-only) | 0.05ms / 16,586 |
+| partial index (`where banned`) | 0.07ms / 11,483 | — not supported |
+| JSONB containment via GIN | 0.05ms / 16,720 | — not supported |
+| PK point lookup | 0.05ms / 17,165 | 0.04ms / 20,230 |
+| upsert with secondary indexes | 0.12ms / 7,140 (4 idx + GIN) | 0.15ms / 5,321 (2 idx) |
+
+Highlights:
+
+- **B-tree skip scan (new in PG 18)** is the headline: with a multicolumn
+  `(banned, elo)` index and a query that only filters `elo`, PG 18 skips
+  through the leading column and answers in 0.06ms. MariaDB cannot use the
+  same index for the same query — it stays within 1.7× of a full scan,
+  making PG **20× faster** on this shape.
+- Partial indexes and JSONB GIN give PG query shapes MariaDB has no
+  equivalent for (both land at 0.05–0.07ms on 100k rows).
+- Index maintenance scales better on PG: with **4** secondary indexes plus
+  GIN it upserts at 0.12ms, while MariaDB with only **2** secondary indexes
+  drops from 0.03ms (bare table) to 0.15ms.
+- MariaDB keeps a small edge on covering-range reads and PK lookups.
+
 For comparison, the same suite on a dev box (Windows 11, Docker Desktop,
 all services concurrently, N=2000):
 

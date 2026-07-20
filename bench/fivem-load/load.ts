@@ -242,21 +242,28 @@ async function main(): Promise<void> {
     const w = Math.min(WORKERS, conc);
     const per = Math.ceil(conc / w);
     const poolPer = Math.min(per, Math.ceil(Math.min(POOL, conc) / w));
-    const procs = Array.from({ length: w }, () =>
-      Bun.spawn({
-        cmd: [process.execPath, import.meta.path],
-        env: {
-          ...process.env,
-          ROLE: 'worker',
-          W_CONC: String(per),
-          W_POOL: String(poolPer),
-          HOTBASE: String(hotBase),
-        },
-        stdout: 'pipe',
-        stderr: 'inherit',
-      }),
+    // stagger worker starts to soften the connection/auth storm at high pools
+    const procs: ReturnType<typeof Bun.spawn>[] = [];
+    for (let k = 0; k < w; k++) {
+      procs.push(
+        Bun.spawn({
+          cmd: [process.execPath, import.meta.path],
+          env: {
+            ...process.env,
+            ROLE: 'worker',
+            W_CONC: String(per),
+            W_POOL: String(poolPer),
+            HOTBASE: String(hotBase),
+          },
+          stdout: 'pipe',
+          stderr: 'inherit',
+        }),
+      );
+      if (poolPer * w > 512) await new Promise((r) => setTimeout(r, 300));
+    }
+    const outputs = await Promise.all(
+      procs.map(async (p) => ({ text: await new Response(p.stdout as ReadableStream).text(), code: await p.exited })),
     );
-    const outputs = await Promise.all(procs.map(async (p) => ({ text: await new Response(p.stdout).text(), code: await p.exited })));
 
     const hist = new Map<OpName, Uint32Array>(OP_NAMES.map((n) => [n, new Uint32Array(BUCKETS)]));
     const counts = Object.fromEntries(OP_NAMES.map((n) => [n, 0])) as Record<OpName, number>;

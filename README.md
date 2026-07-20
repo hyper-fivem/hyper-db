@@ -226,6 +226,46 @@ fsync per commit); on real NVMe it drops to 0.10ms. Hot writes still belong
 in the Redis hot-store + write-behind batches — 2–3× faster than even tuned
 SQL upserts, and immune to checkpoint stalls.
 
+### Realistic load test — `bench/fivem-load`
+
+A mock database of a very large FiveM server (1M players with skin/metadata
+JSON, 20M inventory rows, 1.2M vehicles with tuning-props JSON; ~5.5GB) plus
+a load generator running the query mix of a busy RP server (30%
+readInventory, 20% playerSave, 20% saveItem, logins, vehicle saves,
+leaderboard; 90% of ops hit a 2048-player hot set). Seeds:
+`seed-pg.sql` / `seed-mysql.sql`; generator: `load.ts` (drive it from a
+separate machine so client CPU can't pollute the measurement):
+
+```bash
+DIALECT=pg HOST=<db-ip> CONC=16,64,256,1024 POOL=280 DUR=30 bun bench/fivem-load/load.ts
+```
+
+Results — two identical 16-core / 32GB DDR5 / NVMe boxes (Ryzen 7950X3D,
+Ubuntu 26.04, ~10.8ms network RTT between them), DB tuned for the hardware,
+each dialect measured in isolation, total ops/s:
+
+| in-flight clients | PostgreSQL 18.4 | MariaDB 11.8 |
+|---|---|---|
+| 16 | 1,228 | 1,250 |
+| 64 | 4,864 | 4,851 |
+| 256 | 12,504 | 12,501 |
+| 1024 (overload, 280 conns) | **12,096** | 9,589 |
+
+Up to 256 clients both engines ride the network floor (p50 ≈ RTT + <1ms) —
+the DB is nowhere near its limit. The differences appear at the edges:
+
+- **Tail latency at 256:** PG p99 ≈ 25–35ms vs MariaDB ≈ 41–45ms — PG is
+  ~30% smoother exactly where players would feel hitches.
+- **Overload behavior at 1024:** PG holds ~12.1k ops/s (p50 70ms); MariaDB
+  sheds 21% throughput (9.6k, p50 93ms).
+
+This test also caught a real driver bug: `postgres.js`'s `unsafe()` does not
+prepare unless passed `{ prepare: true }`, costing an extra parameter-typing
+roundtrip (2×RTT per query — invisible on localhost, +11ms over a real
+network). Fixed in `PgDriver.prepared`; the MariaDB driver switched to
+binary-protocol `execute` with its per-connection statement cache for the
+same reason.
+
 The boundary-payload contract (`queryId + params` only) is asserted in CI by
 `resource/test/boundary-payload.test.ts`.
 

@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@hyper-db/schema": ["./packages/schema/src/index.ts"],
+      "@hyper-db/schema/*": ["./packages/schema/src/*"],
+      "@hyper-db/core": ["./packages/core/src/index.ts"],
+      "@hyper-db/codegen": ["./packages/codegen/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "resource/**/*.ts",
+    "bench/**/*.ts"
+  ]
+}
